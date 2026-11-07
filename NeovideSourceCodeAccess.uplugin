@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"Version": 2,
+	"VersionName": "1.1.0",
+	"FriendlyName": "Neovide Source Code Access",
+	"Description": "Opens Unreal Engine source locations in Neovide using the project working directory.",
+	"Category": "Programming",
+	"CreatedBy": "Over Yonder",
+	"CanContainContent": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "NeovideSourceCodeAccess",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": [
+				"Linux"
+			]
+		}
+	]
+}
