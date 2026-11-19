@@ -7,6 +7,7 @@ public class NeovideSourceCodeAccess : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"DesktopPlatform",
 			"SourceCodeAccess"
 		});
 	}

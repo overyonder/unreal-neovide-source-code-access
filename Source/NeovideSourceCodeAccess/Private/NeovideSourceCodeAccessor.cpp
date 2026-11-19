@@ -1,7 +1,12 @@
 #include "NeovideSourceCodeAccessor.h"
 
+#include "Algo/Find.h"
+#include "DesktopPlatformModule.h"
+#include "HAL/PlatformFileManager.h"
+#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
 #include "Internationalization/Internationalization.h"
+#include "Misc/FeedbackContext.h"
 #include "Misc/Paths.h"
 
 #define LOCTEXT_NAMESPACE "NeovideSourceCodeAccessor"
@@ -123,7 +128,58 @@ bool FNeovideSourceCodeAccessor::AddSourceFiles(
 	const TArray<FString>& AbsoluteSourcePaths,
 	const TArray<FString>& AvailableModules)
 {
-	return true;
+	if (AbsoluteSourcePaths.IsEmpty() || !FPaths::IsProjectFilePathSet())
+	{
+		return false;
+	}
+
+	const FString ProjectFile = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
+	const FString ProjectDirectory = FPaths::GetPath(ProjectFile);
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	const TArray<FTargetInfo>& Targets = DesktopPlatform->GetTargetsForProject(ProjectFile);
+	const FTargetInfo* EditorTarget = Algo::FindByPredicate(Targets, [](const FTargetInfo& Target)
+	{
+		return Target.Type == EBuildTargetType::Editor && Target.DefaultTarget.Get(false);
+	});
+	if (!EditorTarget)
+	{
+		EditorTarget = Algo::FindByPredicate(Targets, [](const FTargetInfo& Target)
+		{
+			return Target.Type == EBuildTargetType::Editor;
+		});
+	}
+	const FString TargetName = EditorTarget ? EditorTarget->Name : FString(FPlatformMisc::GetUBTTargetName());
+
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	const FString OutputDirectory = ProjectDirectory / TEXT("Intermediate");
+	if (!PlatformFile.CreateDirectoryTree(*OutputDirectory))
+	{
+		return false;
+	}
+
+	const FString StagedDatabase = FPaths::CreateTempFilename(*OutputDirectory, TEXT("NeovideCompileCommands-"), TEXT(".json"));
+	const FString Arguments = FString::Printf(
+		TEXT("%s %s Development -Project=%s -Mode=GenerateClangDatabase -NoExecCodeGenActions -Include=%s -OutputDir=%s -OutputFilename=%s"),
+		*Quote(TargetName),
+		FPlatformMisc::GetUBTPlatform(),
+		*Quote(ProjectFile),
+		*Quote(ProjectDirectory / TEXT("...")),
+		*Quote(OutputDirectory),
+		*Quote(FPaths::GetCleanFilename(StagedDatabase)));
+	const bool Generated = DesktopPlatform->RunUnrealBuildTool(
+		LOCTEXT("GenerateCompileCommands", "Refreshing Neovide compilation database..."),
+		FPaths::RootDir(), Arguments, GWarn);
+
+	// Publish the complete database with a same-filesystem rename on Linux.
+	if (Generated && PlatformFile.FileSize(*StagedDatabase) > 0 &&
+		PlatformFile.MoveFile(*(ProjectDirectory / TEXT("compile_commands.json")), *StagedDatabase))
+	{
+		return true;
+	}
+
+	PlatformFile.DeleteFile(*StagedDatabase);
+	UE_LOGF(LogTemp, Warning, "Neovide could not refresh the compilation database for %ls", *ProjectFile);
+	return false;
 }
 
 bool FNeovideSourceCodeAccessor::SaveAllOpenDocuments() const
